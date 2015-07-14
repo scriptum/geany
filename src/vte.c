@@ -127,12 +127,10 @@ static void create_vte(void);
 static void vte_start(GtkWidget *widget);
 static void vte_restart(GtkWidget *widget);
 static gboolean vte_button_pressed(GtkWidget *widget, GdkEventButton *event, gpointer user_data);
-static gboolean vte_keyrelease_cb(GtkWidget *widget, GdkEventKey *event, gpointer data);
 static gboolean vte_keypress_cb(GtkWidget *widget, GdkEventKey *event, gpointer data);
 static gboolean vte_register_symbols(GModule *module);
 static void vte_popup_menu_clicked(GtkMenuItem *menuitem, gpointer user_data);
 static GtkWidget *vte_create_popup_menu(void);
-static void vte_commit_cb(VteTerminal *vte, gchar *arg1, guint arg2, gpointer user_data);
 static void vte_drag_data_received(GtkWidget *widget, GdkDragContext *drag_context,
 								   gint x, gint y, GtkSelectionData *data, guint info, guint ltime);
 
@@ -308,8 +306,6 @@ static void create_vte(void)
 	g_signal_connect(vte, "child-exited", G_CALLBACK(vte_start), NULL);
 	g_signal_connect(vte, "button-press-event", G_CALLBACK(vte_button_pressed), NULL);
 	g_signal_connect(vte, "event", G_CALLBACK(vte_keypress_cb), NULL);
-	g_signal_connect(vte, "key-release-event", G_CALLBACK(vte_keyrelease_cb), NULL);
-	g_signal_connect(vte, "commit", G_CALLBACK(vte_commit_cb), NULL);
 	g_signal_connect(vte, "motion-notify-event", G_CALLBACK(on_motion_event), NULL);
 	g_signal_connect(vte, "drag-data-received", G_CALLBACK(vte_drag_data_received), NULL);
 
@@ -354,39 +350,6 @@ static gboolean set_dirty_idle(gpointer user_data)
 }
 
 
-static void set_clean(gboolean value)
-{
-	if (clean != value)
-	{
-		if (terminal_label)
-		{
-			if (terminal_label_update_source > 0)
-			{
-				g_source_remove(terminal_label_update_source);
-				terminal_label_update_source = 0;
-			}
-			if (value)
-				gtk_widget_set_name(terminal_label, NULL);
-			else
-				terminal_label_update_source = g_timeout_add(150, set_dirty_idle, NULL);
-		}
-		clean = value;
-	}
-}
-
-
-static gboolean vte_keyrelease_cb(GtkWidget *widget, GdkEventKey *event, gpointer data)
-{
-	if (ui_is_keyval_enter_or_return(event->keyval) ||
-		((event->keyval == GDK_c) && (event->state & GDK_CONTROL_MASK)))
-	{
-		/* assume any text on the prompt has been executed when pressing Enter/Return */
-		set_clean(TRUE);
-	}
-	return FALSE;
-}
-
-
 static gboolean vte_keypress_cb(GtkWidget *widget, GdkEventKey *event, gpointer data)
 {
 	if (vc->enable_bash_keys)
@@ -409,12 +372,6 @@ static gboolean vte_keypress_cb(GtkWidget *widget, GdkEventKey *event, gpointer 
 }
 
 
-static void vte_commit_cb(VteTerminal *vte, gchar *arg1, guint arg2, gpointer user_data)
-{
-	set_clean(FALSE);
-}
-
-
 static void vte_start(GtkWidget *widget)
 {
 	gchar **env;
@@ -433,8 +390,6 @@ static void vte_start(GtkWidget *widget)
 	}
 	else
 		pid = 0; /* use 0 as invalid pid */
-
-	set_clean(TRUE);
 }
 
 
@@ -447,7 +402,6 @@ static void vte_restart(GtkWidget *widget)
 		pid = 0;
 	}
 	vf->vte_terminal_reset(VTE_TERMINAL(widget), TRUE, TRUE);
-	set_clean(TRUE);
 }
 
 
@@ -675,16 +629,9 @@ static GtkWidget *vte_create_popup_menu(void)
 
 /* If the command could be executed, TRUE is returned, FALSE otherwise (i.e. there was some text
  * on the prompt). */
-gboolean vte_send_cmd(const gchar *cmd)
+void vte_send_cmd(const gchar *cmd)
 {
-	if (clean)
-	{
-		vf->vte_terminal_feed_child(VTE_TERMINAL(vc->vte), cmd, strlen(cmd));
-		set_clean(TRUE); /* vte_terminal_feed_child() also marks the vte as not clean */
-		return TRUE;
-	}
-	else
-		return FALSE;
+	vf->vte_terminal_feed_child(VTE_TERMINAL(vc->vte), cmd, strlen(cmd));
 }
 
 
@@ -754,12 +701,7 @@ void vte_cwd(const gchar *filename, gboolean force)
 			/* use g_shell_quote to avoid problems with spaces, '!' or something else in path */
 			gchar *quoted_path = g_shell_quote(path);
 			gchar *cmd = g_strconcat(vc->send_cmd_prefix, "cd ", quoted_path, "\n", NULL);
-			if (! vte_send_cmd(cmd))
-			{
-				const gchar *msg = _("Directory not changed because the terminal may contain some input (press Ctrl+C or Enter to clear it).");
-				ui_set_statusbar(FALSE, "%s", msg);
-				geany_debug("%s", msg);
-			}
+			vte_send_cmd(cmd);
 			g_free(quoted_path);
 			g_free(cmd);
 		}
