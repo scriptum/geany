@@ -456,7 +456,7 @@ static gchar *parent_dir_name(GtkTreeIter *parent, gchar *path)
 	else
 	{
 		gchar *dirname = get_doc_folder(path);
-		return memmove(dirname, dirname + len, strlen(dirname) - len);
+		return memmove(dirname, dirname + len, strlen(dirname) - len + 1);
 	}
 }
 
