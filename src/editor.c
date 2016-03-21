@@ -4721,8 +4721,8 @@ gboolean editor_goto_pos(GeanyEditor *editor, gint pos, gboolean mark)
 		sci_marker_delete_all(editor->sci, 0);
 		sci_set_marker_at_line(editor->sci, line, 0);
 	}
-
-	sci_goto_pos(editor->sci, pos, TRUE);
+	if(pos != sci_get_current_position(editor->sci))
+		sci_goto_pos(editor->sci, pos, TRUE);
 	editor->scroll_percent = 0.25F;
 
 	/* finally switch to the page */
